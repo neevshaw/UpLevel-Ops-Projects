@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login</title>
+  <style>
+    :root {
+      --light-neutral: #f0eee6;
+      --warm1: #b26c4f;
+      --warm2: #eac4b6;
+      --warm3: #edd7a1;
+      --dark1: #323c3e;
+      --dark2: #89877a;
+      --dark3: #5f6c8f;
+      --light-blue: #ccdce0;
+      --lavender: #958e99;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at 20% 30%, #3b4a55 0%, #1f262b 100%);
+      color: var(--light-neutral);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative; /* needed for page-level positioning */
+    }
+
+    /* Page-level logo in top-right corner */
+    .page-logo {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 15%;
+      height: auto;
+      z-index: 1000; /* ensures it stays above other content */
+    }
+
+    .login-card {
+      background: linear-gradient(145deg, rgba(50,60,70,0.95) 0%, rgba(40,50,60,0.98) 100%);
+      border: 1px solid rgba(149,142,153,0.2);
+      backdrop-filter: blur(12px);
+      padding: 3rem;
+      border-radius: 18px;
+      max-width: 420px;
+      width: 90%;
+      box-shadow: 0 10px 35px rgba(0,0,0,0.6);
+      transition: all 0.3s ease;
+    }
+
+
+    .login-card h2 {
+      color: var(--light-blue);
+      font-size: 1.8rem;
+      margin-bottom: 0.5rem;
+      letter-spacing: 0.5px;
+      text-align: center;
+    }
+
+    .flash-messages { margin-bottom: 1.5rem; }
+    .flash-error {
+      background: rgba(178,108,79,0.15);
+      border-left: 4px solid var(--warm1);
+      color: var(--warm2);
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 0.9rem;
+    }
+    .flash-success {
+      background: rgba(95,108,143,0.15);
+      border-left: 4px solid var(--light-blue);
+      color: var(--light-blue);
+      padding: 10px 12px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 0.9rem;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+
+    label {
+      font-weight: 600;
+      color: var(--light-blue);
+      font-size: 0.95rem;
+      margin-bottom: 0.3rem;
+    }
+
+    input[type="text"], input[type="password"] {
+      background: #2c3640;
+      border: 1px solid rgba(204,220,224,0.15);
+      border-radius: 10px;
+      padding: 0.85rem;
+      color: var(--light-neutral);
+      font-size: 1rem;
+      transition: border 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    input[type="text"]:focus, input[type="password"]:focus {
+      border: 1px solid var(--warm1);
+      box-shadow: 0 0 0 3px rgba(178,108,79,0.25);
+      outline: none;
+    }
+
+    input::placeholder {
+      color: var(--lavender);
+    }
+
+    .checkbox-container {
+      display: flex;
+      align-items: center;
+      font-size: 0.9rem;
+      color: var(--lavender);
+    }
+
+    input[type="checkbox"] {
+      margin-right: 8px;
+      accent-color: var(--warm1);
+    }
+
+    button {
+      background: var(--warm1);
+      color: var(--light-neutral);
+      padding: 0.85rem;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s, box-shadow 0.2s;
+    }
+
+    button:hover {
+      background: #c07a5b;
+      box-shadow: 0 5px 15px rgba(178,108,79,0.4);
+      transform: translateY(-2px);
+    }
+
+    .form-note {
+      color: var(--lavender);
+      margin-top: 1.5rem;
+      font-size: 0.9rem;
+      text-align: center;
+    }
+
+    .form-note a {
+      color: var(--warm2);
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    .form-note a:hover {
+      color: var(--warm1);
+    }
+
+    @media (max-width: 500px) {
+      .login-card {
+        padding: 2.2rem;
+      }
+      .login-card h2 {
+        font-size: 1.5rem;
+      }
+      .page-logo {
+        width: 60px;
+        top: 15px;
+        right: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Page-level Logo -->
+  <img src="data:image/png;base64,{{ logo_data }}" alt="Logo" class="page-logo">
+
+  <main class="form-container">
+    <div class="login-card">
+      <h2>Login to UpLevel Ops Legal Assessment</h2>
+
+      <div class="flash-messages">
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+          <div class="flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+
+      <form method="post">
+        <label for="email">Username</label>
+        <input name="email" type="text" id="email" placeholder="Enter your username" required>
+
+        <label for="password">Password</label>
+        <input name="password" type="password" id="password" placeholder="Enter your password" required>
+
+        <button type="submit">Login</button>
+      </form>
+    </div>
+  </main>
+</body>
+</html>
