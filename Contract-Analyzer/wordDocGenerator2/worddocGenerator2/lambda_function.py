@@ -15,7 +15,8 @@ from word_doc import (
     split_run,
     wrap_runs_with_tracked_deletion,
     create_tracked_insertion,
-    doc_from_json_doc_data
+    doc_from_json_doc_data,
+    get_styles_from_run
 )
 
 TMP_DATA_UPLOAD_BUCKET_NAME = 'tmp-word-doc-json-upload'
@@ -470,7 +471,11 @@ def handle_edit_file(event):
 
             del_elem = wrap_runs_with_tracked_deletion(edit_runs, author, change_id_counter)
             change_id_counter += 1
-            ins_elem = create_tracked_insertion(del_elem, replace, author, change_id_counter)
+
+            # Inherit formatting from the first deleted run
+            styles = get_styles_from_run(edit_runs[0]) if edit_runs else []
+            replacement_runs = [{'text': replace, 'styles': styles}]
+            ins_elem = create_tracked_insertion(del_elem, replacement_runs, author, change_id_counter)
             change_id_counter += 1
 
             if comment:
@@ -543,7 +548,32 @@ def handle_edit_file(event):
                 }
 
             prev_run, next_run = split_run(edit_run, edit_run_split_ind)
-            ins_elem = create_tracked_insertion(prev_run._element, insert_runs, author, change_id_counter)
+            base_run = prev_run or edit_run
+            styles = get_styles_from_run(base_run)
+
+            # Normalize insert_runs to [{'text': ..., 'styles': [...]}, ...], inheriting styles
+            normalized_insert_runs = []
+            if isinstance(insert_runs, str):
+                normalized_insert_runs.append({
+                    'text': insert_runs,
+                    'styles': styles,
+                })
+            elif isinstance(insert_runs, dict):
+                r = dict(insert_runs)
+                r.setdefault('styles', styles)
+                normalized_insert_runs.append(r)
+            else:
+                for r in insert_runs:
+                    r = dict(r)
+                    r.setdefault('styles', styles)
+                    normalized_insert_runs.append(r)
+
+            ins_elem = create_tracked_insertion(
+                prev_run._element,
+                normalized_insert_runs,
+                author,
+                change_id_counter
+            )
             change_id_counter += 1
 
             if comment:

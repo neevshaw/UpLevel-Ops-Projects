@@ -110,6 +110,23 @@ def create_tracked_insertion(prev_element, runs, author, change_id):
     prev_element.addnext(ins_elem)
     return ins_elem
 
+def get_styles_from_run(run):
+    """Convert a python-docx Run into a styles list like ['bold', 'italic', 'underline', 'size-12']."""
+    styles = []
+    if run.bold:
+        styles.append('bold')
+    if run.italic:
+        styles.append('italic')
+    if run.underline:
+        styles.append('underline')
+
+    if run.font.size is not None:
+        size_pt = run.font.size.pt
+        if size_pt is not None:
+            styles.append(f"size-{size_pt}")
+
+    return styles
+
 # Register comment in comments.xml
 def add_comment_to_change(change_elem, comment_id):
     start = OxmlElement('w:commentRangeStart')

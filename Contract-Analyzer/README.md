@@ -1,6 +1,6 @@
 # Contract Analyzer
 
-An AI contract-review assistant built for UpLevel Ops. A user talks to a Custom GPT, uploads a contract (`.docx` or `.pdf`), and gets back a Word document with **tracked-change redlines and margin comments** that follow the client's legal playbook.
+An AI contract-review assistant built for UpLevel Ops. A user talks to a Custom GPT, uploads a contract (`.docx` or `.pdf`), and gets back a Word document with **tracked-change redlines and margin comments** that follow the client's legal playbook. Inserted and replacement text keeps the original run formatting (bold, italic, underline, font size).
 
 ## How it works
 

@@ -92,7 +92,6 @@ def find_best_phrase(doc, phrase, token_slack = 3):
     end_raw = tokens[start_i + win_len - 1][2]
     best_raw_substring = raw_text[start_raw:end_raw]
 
-    print(best_raw_substring)
     return best_raw_substring
 
 
@@ -786,6 +785,7 @@ def lambda_handler(event, context):
                     e['edit_spec']['surrounding_text'] = strip_leading_chars(find_best_phrase(doc, e['edit_spec']['surrounding_text']))
                 else:
                     e['edit_spec']['adjacent_text'] = strip_leading_chars(find_best_phrase(doc, e['edit_spec']['adjacent_text']))
+
             status_code, result = call_word_doc_generator(upload_id, edits)
             if 200 <= status_code <= 299:
                 return _resp(200, _success_envelope(step, "deliver", result))
