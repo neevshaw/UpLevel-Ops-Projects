@@ -10,7 +10,7 @@ An AI contract-review assistant. A Custom GPT walks the user through uploading a
 - Fuzzy anchor matching with `rapidfuzz` so model-proposed edits land on the right text
 - Stack: Python, AWS Lambda + API Gateway + S3 + ECR, Docker, OpenAI API, python-docx / lxml, PyMuPDF
 
-## [Legal Assessment](Legal%20Assessment/)
+## [Legal Assessment](Legal-Assessment/)
 
 A legal-operations maturity assessment. Admins upload a client's documents; the app extracts pain points, tools, processes, and metrics, scores the client against a maturity model, adjusts scores using the client's policies, and publishes a dashboard with prioritized recommendations.
 
