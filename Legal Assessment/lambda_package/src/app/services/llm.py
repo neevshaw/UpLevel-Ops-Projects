@@ -5,7 +5,6 @@ from io import BytesIO
 
 from ..schemas.extraction import ExtractionResult, PainPoint, CurrentTool, ProcessStep, Metric, Opportunity
 
-# OpenAI client - required for this module
 try:
     from openai import OpenAI
     if not os.getenv("OPENAI_API_KEY"):
@@ -23,7 +22,7 @@ def _first_sentence(text: str, max_len: int = 240) -> str:
     return out[:max_len]
 
 def _llm_extract_one(chunk: Dict) -> Dict[str, List[Dict]]:
-    """Extract information using LLM in JSON mode"""
+    """Extract structured signals from one chunk using the LLM in JSON mode."""
     print("Extracting with LLM")
     text = chunk.get("text", "").strip()
     src = chunk.get("source", {})
@@ -53,7 +52,7 @@ def _llm_extract_one(chunk: Dict) -> Dict[str, List[Dict]]:
         print(e)
         raise RuntimeError(f"LLM extraction failed: {e}")
 
-    # Normalize any strings → dicts so Pydantic validation won't explode
+    # The model sometimes returns bare strings; coerce them to dicts for Pydantic
     def _coerce_item(it, kind: str) -> Optional[Dict]:
         if isinstance(it, dict):
             return it
@@ -71,7 +70,6 @@ def _llm_extract_one(chunk: Dict) -> Dict[str, List[Dict]]:
                 return {"name": s}
             if kind == "opportunities":
                 return {"area": "General", "description": s, "impact_hint": "med", "effort_hint": "med", "dependencies": []}
-        # Unsupported type → drop
         return None
     keys = ["pain_points", "current_tools", "processes", "metrics", "opportunities"]
     if not isinstance(data, dict):
@@ -85,8 +83,7 @@ def _llm_extract_one(chunk: Dict) -> Dict[str, List[Dict]]:
             coerced = _coerce_item(it, k)
             if coerced is not None:
                 norm.append(coerced)
-        data[k] = norm  # now guaranteed list-of-dicts
-    # Attach source_ref to each item
+        data[k] = norm
     source_ref = {
         "file": src.get("file", ""),
         "locator": src.get("locator", ""),
@@ -94,8 +91,7 @@ def _llm_extract_one(chunk: Dict) -> Dict[str, List[Dict]]:
     }
     for k in keys:
         for item in data.get(k, []):
-            item["source_ref"] = source_ref  # safe: item is dict
-    # Validate with Pydantic
+            item["source_ref"] = source_ref
     validated = ExtractionResult(
         chunks_used=[chunk.get("id", "")],
         pain_points=[PainPoint(**p) for p in data.get("pain_points", [])],
@@ -106,11 +102,8 @@ def _llm_extract_one(chunk: Dict) -> Dict[str, List[Dict]]:
     )
     return validated.dict()
 
-def extract_from_chunks(chunks, max_chunks: int = 50) -> Path:
-    """Read working/{job_id}/chunks.json (new) or working/{job_id}_chunks.json (legacy)."""
-
-    
-
+def extract_from_chunks(chunks, max_chunks: int = 50) -> Dict[str, List]:
+    """Run extraction over the first `max_chunks` chunks and merge the results."""
     results = {
         "pain_points": [],
         "current_tools": [],

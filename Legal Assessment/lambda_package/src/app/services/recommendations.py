@@ -5,7 +5,6 @@ from typing import Dict, List, Any, Optional
 
 from ..services.maturity import load_maturity_model
 
-# OpenAI client - required for this module
 try:
     from openai import OpenAI
     if not os.getenv("OPENAI_API_KEY"):
@@ -18,13 +17,9 @@ except Exception as e:
 MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
 
-
-
 def _build_analysis_prompt(current_state: Dict[str, Any], synthesis: Dict[str, Any], maturity_model: Dict[str, Any]) -> \
 List[Dict[str, str]]:
     """Build the prompt for LLM to generate recommendations"""
-
-    # Summarize current maturity levels
     categories_summary = []
     for cat in current_state.get("categories", []):
         level = cat.get("level", 1)
@@ -36,17 +31,14 @@ List[Dict[str, str]]:
         categories_summary.append(
             f"- {name}: Level {level} ({status}, {int(confidence * 100)}% confidence, {int(coverage * 100)}% coverage)")
 
-    # Summarize top pain points
     pain_summary = []
     for pain in synthesis.get("pain_points", [])[:5]:
         pain_summary.append(f"- {pain.get('text', '')} (mentioned {pain.get('count', 1)}x)")
 
-    # Summarize top opportunities
     opp_summary = []
     for opp in synthesis.get("opportunities", [])[:5]:
         opp_summary.append(f"- {opp.get('description', '')} (mentioned {opp.get('count', 1)}x)")
 
-    # Extract maturity model definitions for context
     model_context = []
     for cat in maturity_model.get("categories", [])[:10]:  # limit to keep prompt manageable
         model_context.append(f"**{cat.get('name', '')}**: Levels 1-4 represent progression from ad-hoc to strategic")
@@ -109,23 +101,14 @@ Return only the JSON response."""
     ]
 
 
-def generate_recommendations(synthesis, current_state, max_recommendations: int = 5) -> Path:
-    """
-    Generate actionable recommendations based on current state and synthesis data.
-    Uses LLM to generate recommendations.
-    Writes working/{job_id}/recommendations.json
-    """
-
-    # Load required data
-
-    # Load maturity model for context
+def generate_recommendations(synthesis, current_state, max_recommendations: int = 5) -> Dict[str, Any]:
+    """Generate prioritized, actionable recommendations from the current state and synthesis data."""
     try:
         model, raw_model = load_maturity_model()
         maturity_defs = raw_model
     except Exception:
         maturity_defs = {"categories": []}
 
-    # Generate recommendations using LLM
     try:
         messages = _build_analysis_prompt(current_state, synthesis, maturity_defs)
 
@@ -139,7 +122,6 @@ def generate_recommendations(synthesis, current_state, max_recommendations: int 
         llm_output = json.loads(resp.choices[0].message.content)
         recommendations = llm_output.get("recommendations", [])
 
-        # Validate and clean up LLM output
         for i, rec in enumerate(recommendations):
             rec["sequence"] = i + 1
             rec["priority_score"] = int(rec.get("priority_score", 5))
@@ -151,10 +133,8 @@ def generate_recommendations(synthesis, current_state, max_recommendations: int 
     except Exception as e:
         raise RuntimeError(f"LLM recommendation generation failed: {e}")
 
-    # Limit to requested number
     recommendations = recommendations[:max_recommendations]
 
-    # Build output structure
     output = {
         "generation_method": "llm",
         "data_source": current_state.get("data_source", "unknown"),
@@ -169,5 +149,4 @@ def generate_recommendations(synthesis, current_state, max_recommendations: int 
         }
     }
 
-    # Write output file
     return output

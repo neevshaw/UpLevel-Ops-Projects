@@ -76,10 +76,7 @@ def _rollup(levels: List[int], method: str) -> int:
     return max(1, min(4, int(statistics.median(levels))))
 
 def score_current_state_baseline(company, i, threshold: int = 55, model_path: str | None = None):
-    """
-    Build current-state levels for every category using fuzzy match to descriptors.
-    Writes data/working/{job}/current_state.json
-    """
+    """Score maturity category `i` for `company` by fuzzy-matching level descriptors against the document chunks."""
     chunks = json.loads(s3.get_object(Bucket=BUCKET_NAME, Key=f"{company}/chunks.json")['Body'].read().decode('utf-8'))
     model, _ = load_maturity_model(model_path)
     cat = model.categories[i]

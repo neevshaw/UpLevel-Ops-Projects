@@ -5,7 +5,6 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from ..services.maturity import load_maturity_model
 
-# OpenAI client - required for this module
 try:
     from openai import OpenAI
     import os
@@ -114,13 +113,11 @@ def apply_policy_to_current_state(
         model_path: Optional[str] = None,
         top_k: int = 5,
         enforce: bool = False
-) -> Path:
+) -> Dict[str, Any]:
     """
-    Reads working/{job}/current_state.json and maturity model, retrieves policy snippets,
-    asks LLM for policy-aligned level per category, writes working/{job}/current_state_policy.json.
+    For each category in the current state, retrieve relevant policy snippets and ask the
+    LLM for a policy-aligned maturity level.
     """
-
-    # raw maturity YAML (as dict) for definitions
     model, raw = load_maturity_model()
     maturity_defs = raw  # {"categories":[...]}
 
@@ -143,19 +140,17 @@ def apply_policy_to_current_state(
         except Exception as e:
             raise RuntimeError(f"LLM adjudication failed for category {cat.get('name', cat.get('id', 'unknown'))}: {e}")
 
-        # merge
-        cat_out = dict(cat)  # copy
+        cat_out = dict(cat)
         cat_out["policy_level"] = int(data.get("level", cat.get("level", 1)))
         cat_out["policy_confidence"] = float(data.get("confidence", 0.0))
         cat_out["policy_reason"] = data.get("reason", "")
         cat_out["policy_citations"] = list(map(str, data.get("citations", [])))
 
-        # choose final
         if enforce:
             cat_out["final_level"] = cat_out["policy_level"]
             cat_out["enforced"] = True
         else:
-            # simple blending: prefer policy if high confidence, else keep baseline
+            # Prefer the policy level only when the model is confident
             base = int(cat.get("level", 1))
             pol = int(cat_out["policy_level"])
             conf = float(cat_out["policy_confidence"])

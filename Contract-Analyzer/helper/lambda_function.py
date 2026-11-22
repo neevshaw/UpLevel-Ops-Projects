@@ -65,7 +65,7 @@ STEP 3: REDLINE_PLAN
 
 Input: {upload_id, company, contract_type, data:{document_text}}
 
-In this step you are generating redlines of the given document accoridng to the following guidlines (mainly BLVD_MSA_REDLINE_RULES, because GUIDE TO EFFECTIVE CONTRACT REDLINE COMMENTS is just for good practices).
+In this step you are generating redlines of the given document according to the following guidelines (mainly BLVD_MSA_REDLINE_RULES, because GUIDE TO EFFECTIVE CONTRACT REDLINE COMMENTS is just for good practices).
 EXPECTED MINIMUM AMOUNT OF REDLINES (DEPENDING ON CONTRACT_TYPE):
 - NDA contracts: 5-10 redlines typical
 - MSA contracts: 10-15 redlines typical
@@ -190,7 +190,7 @@ Each of these examples demonstrates a few key qualities of good contract comment
 5.	Termination with Cause
     ●	Rule (IF/THEN):
         ○	IF a party materially breaches, THEN the non-breaching party may terminate for cause if breach is uncured within 30 days after detailed written notice.
-        ○	IF the breach is incurable, tHEN no cure period applies and termination may be immediate.
+        ○	IF the breach is incurable, THEN no cure period applies and termination may be immediate.
     ●	Allowed:
         ○	30-day cure for curable material breaches; immediate termination for incurable events.
     ●	Not Allowed:
@@ -383,7 +383,7 @@ Each of these examples demonstrates a few key qualities of good contract comment
 19.	Non-Solicitation
     ●	AI Action Rule:
         ○	If a non-solicitation provision is present, please do the following:
-            ■	(A) limit it to (1) year post-terimation of employees that were introduced to Boulevard as part of the contracted services, and
+            ■	(A) limit it to (1) year post-termination of employees that were introduced to Boulevard as part of the contracted services, and
             ■	(B) limit it to a prohibition against directly soliciting that individual (but allow for that individual to respond to a general Boulevard open position notice)
     ●	Allowed:
         ○	Non-solicitation with a one-year duration of relevant individuals regarding direct solicitation..
@@ -554,23 +554,6 @@ NOTES: For insert_pos="before": adjacent_text must match the START of the target
 
 """
 
-"""
-def _normalize_spaces(t: str) -> str:
-    # collapse whitespace and normalize unicode quotes
-    t = unicodedata.normalize("NFKC", t)
-    t = re.sub(r"\\s+", " ", t)
-    return t.strip()
-
-def _extract_paragraph_window(text: str, needle: str, window: int = 160):
-    text_norm = _normalize_spaces(text)
-    needle_norm = _normalize_spaces(needle)
-    i = text_norm.lower().find(needle_norm.lower())
-    if i == -1:
-        return None
-    start = max(0, i - window//2)
-    end = min(len(text_norm), i + len(needle_norm) + window//2)
-    return text_norm[start:end]
-"""
 
 # -----------------------------
 # AWS + OpenAI Setup
@@ -581,10 +564,9 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 HELPER_MODEL = os.environ.get("HELPER_MODEL", "gpt-4o-mini")
 WORKFLOW_VERSION = "1.1"
 HELPER_VERSION = "3.1"
-WORD_DOC_GENERATOR_URL = os.environ.get(
-    "WORD_DOC_GENERATOR_URL",
-    "https://cugpx3dhg7.execute-api.us-west-2.amazonaws.com/default/wordDocGenerator/editFileUpload"
-)
+# Base URL of the wordDocGenerator API, e.g. https://<api-id>.execute-api.<region>.amazonaws.com/default/wordDocGenerator
+WORD_DOC_GENERATOR_BASE_URL = os.environ.get("WORD_DOC_GENERATOR_BASE_URL", "").rstrip("/")
+WORD_DOC_GENERATOR_URL = os.environ.get("WORD_DOC_GENERATOR_URL", f"{WORD_DOC_GENERATOR_BASE_URL}/editFileUpload")
 
 # -----------------------------
 # Document Retrieval
@@ -595,22 +577,20 @@ def get_document_text(upload_id: str) -> str:
     obj = s3.get_object(Bucket=bucket, Key=key)
     body_bytes = obj["Body"].read()
     content_type = str(obj.get("ContentType", "").lower())
-    
-    # Detect if PDF
+
     if "pdf" in content_type:
-        # Wrap bytes in BytesIO
         doc = fitz.open(stream=io.BytesIO(body_bytes), filetype="pdf")
         
         text_chunks = []
         for page_num, page in enumerate(doc):
-            text = page.get_text()  # Try without "text" parameter first
-            if text and text.strip():  # Check if text is not just whitespace
+            text = page.get_text()
+            if text and text.strip():
                 text_chunks.append(text)
         
         doc.close()
         
         if not text_chunks:
-            print("⚠️ No text extracted from PDF - might be image-based or encrypted")
+            print("No text extracted from PDF - might be image-based or encrypted")
             return ""
         
         text = "\n".join(text_chunks)
@@ -626,113 +606,6 @@ def get_document_text(upload_id: str) -> str:
         raise ValueError("Unsupported file type or unable to auto-detect type.")
 
 
-# -----------------------------
-# Helper → WordDocGenerator Coordination
-# -----------------------------
-"""
-def call_word_doc_generator(upload_id, edits):
-    payload = {
-        "upload_id": upload_id,
-        "author": "Boulevard Contract Analyzer",
-        "track_changes": True,
-        "edits": edits,
-    }
-    resp = requests.post(WORD_DOC_GENERATOR_URL, json=payload, timeout=30)
-    resp.raise_for_status()
-    print(resp.json())
-    return resp.json()
-
-
-def adjust_failed_edits(upload_id: str, failed_items: list):
-    doc_text = get_document_text(upload_id)
-    adjusted = []
-
-    for item in failed_items:
-        e = item.get("edit_spec", item)  # support either shape
-        find_raw = e.get("find", "")
-
-        # Generate candidates: raw, trimmed punctuation variants, straight/curly quotes
-        quotes = [
-            ("“", "\""), ("”", "\""), ("‘", "'"), ("’", "'")
-        ]
-        punct_tails = ["", ".", ",", "”", ".”", ",”"]
-        candidates = set()
-        base = _normalize_spaces(find_raw)
-        candidates.add(base)
-        for lq, sq in quotes:
-            candidates.add(base.replace(lq, sq).replace(lq, sq))
-        for tail in punct_tails:
-            candidates.add((base + tail).strip())
-
-        chosen = None
-        for cand in candidates:
-            win = _extract_paragraph_window(doc_text, cand)
-            if win:
-                chosen = (cand, win)
-                break
-
-        # If nothing matched, try a looser token subset (first 2–3 words)
-        if not chosen:
-            tokens = base.split()
-            for n in (3, 2):
-                if len(tokens) >= n:
-                    loose = " ".join(tokens[:n])
-                    win = _extract_paragraph_window(doc_text, loose)
-                    if win:
-                        chosen = (loose, win)
-                        break
-
-        # If still nothing, keep original (it will fail again but we report it)
-        if chosen:
-            cand, win = chosen
-            e["find"] = cand
-            e["surrounding_text"] = win
-
-        adjusted.append(e)
-
-    return adjusted
-
-
-
-def apply_redlines_with_retry(upload_id, edits):
-    for attempt in range(3):
-        try:
-            result = call_word_doc_generator(upload_id, edits)
-            failed = result.get("failed_items", [])
-            if not failed:
-                return {
-                    "status": "success",
-                    "applied": result.get("applied", len(edits)),
-                    "failed": 0,
-                    "failed_items": [],
-                }
-
-            # Relax anchors for retry
-            edits = adjust_failed_edits(failed)
-            time.sleep(min(2 ** attempt * 0.5, 5))
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
-            time.sleep(min(2 ** attempt * 0.5, 5))
-
-    return {
-        "status": "partial_success",
-        "applied": 0,
-        "failed": len(edits),
-        "failed_items": edits,
-    }
-
-
-# -----------------------------
-# Helper Envelope & Utilities
-# -----------------------------
-def _load_helper_prompt():
-    p = os.environ.get("HELPER_SYSTEM_PROMPT")
-    if p:
-        return p
-    here = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(here, "helper_system_prompt.txt"), "r", encoding="utf-8") as f:
-        return f.read()
-"""
 
 HELPER_SYSTEM_PROMPT = {"screening": SCREENING_PROMPT, "redline_plan": REDLINE_PLAN}
 
@@ -768,42 +641,6 @@ def _success_envelope(step: str, summary: Dict[str, Any]) -> Dict[str, Any]:
         "helper_version": HELPER_VERSION,
         "result_summary": summary,
     }
-"""
-def _validate_envelope(step: str, out: Dict[str, Any]) -> Dict[str, Any]:
-    # Ensure required top-level keys exist (or set safe defaults)
-    out.setdefault("status", "success")
-    out.setdefault("current_step", step or "")
-    out.setdefault("next_step", "")
-    out["workflow_version"] = WORKFLOW_VERSION
-    out["helper_version"] = HELPER_VERSION
-
-    rs = out.get("result_summary", {})
-    if not isinstance(rs, dict):
-        return _error_envelope(step, "schema_validation_failed", "result_summary must be an object")
-
-    status = out.get("status")
-
-    # Screening step: allow old or new shapes
-    if step == "screening" and status in {"success", "partial_success"}:
-        has_old = ("screening_status" in rs) and ("triggers" in rs)
-        has_new = ("legal_required" in rs) and ("flags" in rs)
-        if not (has_old or has_new):
-            return _error_envelope(
-                step,
-                "schema_validation_failed",
-                "screening must include either (screening_status & triggers) or (legal_required & flags)"
-            )
-
-    # Apply-redlines step: tolerate helper returning compact summary
-    if step == "apply_redlines" and status in {"success", "partial_success", "retry"}:
-        # Some callers expect applied/failed arrays; make sure keys exist
-        rs.setdefault("applied", rs.get("applied", [] if isinstance(rs.get("applied"), list) else []))
-        rs.setdefault("failed", rs.get("failed", [] if isinstance(rs.get("failed"), list) else []))
-        out["result_summary"] = rs
-
-    return out
-
-"""
 def split_text_into_chunks(text: str, j: int, max_words: int = 1000) -> list[str]:
     """Split text into chunks by word count"""
     words = text.split()
@@ -833,8 +670,6 @@ def lambda_handler(event, context):
             upload_id = payload.get("upload_id")
             document_text = get_document_text(upload_id)
             payload.setdefault("data", {})["document_text"] = document_text
-
-            # Call model for summary
             return call_model(step, payload)
 
         elif step == "redline_plan":
@@ -846,13 +681,12 @@ def lambda_handler(event, context):
         elif step == "apply_redlines":
             upload_id = payload.get("upload_id")
             edits = payload.get("data", {}).get("edits", [])
-            # result = apply_redlines_with_retry(upload_id, edits)
-            # return _resp(200, _success_envelope(step, result))
+            return _resp(501, _error_envelope(step, "not_implemented", "apply_redlines is handled by helper/helper/lambda_function.py"))
 
         elif step == "deliver":
             upload_id = payload.get("upload_id")
             filename = payload.get("filename")
-            return _resp(200, _success_envelope(step, {"download_url": f"https://cugpx3dhg7.execute-api.us-west-2.amazonaws.com/default/wordDocGenerator/document?upload_id={upload_id}&source=uploaded&filename={filename}"})) 
+            return _resp(200, _success_envelope(step, {"download_url": f"{WORD_DOC_GENERATOR_BASE_URL}/document?upload_id={upload_id}&source=uploaded&filename={filename}"})) 
 
         else:
             return _resp(400, _error_envelope(step, "unknown_step", f"Unrecognized step: {step}"))
@@ -867,7 +701,7 @@ def lambda_handler(event, context):
 # OpenAI Helper Model Call
 # -----------------------------
 def call_model(step, payload):
-    """Call the helper model, then validate/normalize the envelope before returning."""
+    """Call the helper model with the system prompt for this step."""
     user_msg = json.dumps(payload, ensure_ascii=False)
     print("Start")
     chat = client.chat.completions.create(

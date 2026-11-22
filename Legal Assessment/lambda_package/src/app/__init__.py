@@ -10,7 +10,6 @@ import botocore
 import base64
 from pydantic import BaseModel
 
-# Local service layer imports
 from .services.current_state_baseline import score_current_state_baseline
 from .services.llm import extract_from_chunks
 from .services.dashboard import render_dashboard
@@ -25,9 +24,6 @@ from flask_login import LoginManager, login_user, login_required, logout_user, c
 from werkzeug.security import generate_password_hash, check_password_hash
 
 login_manager = LoginManager()
-
-
-
 
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 s3 = boto3.client('s3', config=botocore.config.Config(s3={'addressing_style':'path'}))
@@ -46,27 +42,20 @@ def process(data):
             filename = file['filename']
             local_path = f'/tmp/{file['filename']}'
             s3.download_file(BUCKET_NAME, file['key'], local_path)
-            
-
-
             saved_files.append({"filename": filename, "path": local_path})
 
             logger.info(
                 "[UPLOAD] saved %s -> %s", filename, local_path
             )
 
-        """Chunk the uploaded files for a given ``job_id``.
-
-        The underlying ``ingest_files`` service should write an artifacts file
-        (e.g., JSON of chunks) and return its path.
-        """
+        # 1. Chunk the uploaded files
         try:
             chunks = ingest_files(saved_files)
         except FileNotFoundError as e:
             return {'status': 400, 'body': str(e)}
         max_chunks: int = 50
 
-        """Run LLM-powered extraction over the previously ingested chunks."""
+        # 2. LLM extraction over the chunks
         try:
             data = extract_from_chunks(chunks, max_chunks=max_chunks)
         except FileNotFoundError as e:
@@ -82,7 +71,7 @@ def process(data):
         }
         print(counts)
 
-        """Aggregate, de-duplicate, and prioritize extracted signals."""
+        # 3. Aggregate, de-duplicate, and prioritize extracted signals
         try:
             synthesis = synthesize(data, top_n=8)
         except FileNotFoundError as e:
@@ -101,7 +90,6 @@ def process(data):
 
         chunks_json = json.dumps(chunks, indent=2)
         synthesis_json = json.dumps(synthesis, indent=2)
-        # Upload to S3 (creates the directory path automatically)
         s3.put_object(
             Bucket=BUCKET_NAME,
             Key=f"{company}/chunks.json",
@@ -245,7 +233,6 @@ def process3(data):
         )
         return {"message": "process complete!"}, 202
 
-        
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -269,7 +256,6 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_recycle": 1800,
 }
 
-# Build connection string for MySQL (using pymysql)
 app.config["SQLALCHEMY_DATABASE_URI"] = (
     f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
@@ -286,7 +272,7 @@ main = Blueprint('main', __name__)
 @main.route("/logout")
 def logout():
     logout_user()
-    return redirect(url_for("main.index"))  # or whatever your homepage route is
+    return redirect(url_for("main.index"))
 
 @main.route("/dashboard", methods=['GET'])
 @login_required
@@ -337,8 +323,6 @@ def index():
             return redirect(url_for('main.index'))
 
         login_user(user, remember=True)
-
-        # Redirect to next page if specified, otherwise dashboard
 
         if user.acc == "admin":
             return redirect(url_for('main.up'))

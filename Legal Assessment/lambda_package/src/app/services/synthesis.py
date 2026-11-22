@@ -21,11 +21,8 @@ def _first(s: List[str]) -> str | None:
             return x
     return None
 
-def synthesize(data, top_n: int = 8) -> Path:
-    """
-    Read working/{job_id}/extractions.json -> write working/{job_id}/synthesis.json
-    Dedupe similar items, compute Impact×Effort priority scores, return output path.
-    """
+def synthesize(data, top_n: int = 8) -> Dict:
+    """Dedupe extracted items and compute Impact×Effort priority scores."""
 
     pains = data.get("pain_points", [])
     opps  = data.get("opportunities", [])
@@ -242,5 +239,4 @@ def synthesize(data, top_n: int = 8) -> Path:
         "metrics": sorted(metric_buckets.values(), key=lambda b: (-b["count"], b["name"])),
     }
 
-        
     return out

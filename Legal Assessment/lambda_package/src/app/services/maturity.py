@@ -12,4 +12,4 @@ def load_maturity_model(path: str | None = None) -> Tuple[MaturityModel, dict]:
         raise FileNotFoundError(f"Maturity model not found: {p}")
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     model = MaturityModel(**data)
-    return model, data  # return raw too, if you want to inspect
+    return model, data

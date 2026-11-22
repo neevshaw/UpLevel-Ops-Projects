@@ -16,34 +16,34 @@ def current_document_datetime():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def wrap_runs_with_tracked_deletion(runs, author, deletion_id):
-	if not runs:
-		return None
+    if not runs:
+        return None
 
-	paragraph = runs[0]._element.getparent()
-	first_run_element = runs[0]._element
-	insertion_point = paragraph.index(first_run_element)
+    paragraph = runs[0]._element.getparent()
+    first_run_element = runs[0]._element
+    insertion_point = paragraph.index(first_run_element)
 
-	# Create the <w:del> element
-	del_element = OxmlElement("w:del")
-	del_element.set(qn("w:id"), str(deletion_id))
-	del_element.set(qn("w:author"), author)
-	del_element.set(qn("w:date"), current_document_datetime())
+    # Create the <w:del> element
+    del_element = OxmlElement("w:del")
+    del_element.set(qn("w:id"), str(deletion_id))
+    del_element.set(qn("w:author"), author)
+    del_element.set(qn("w:date"), current_document_datetime())
 
-	# Clone each run and replace <w:t> with <w:delText>
-	for run in runs:
-		run_clone = copy.deepcopy(run._element)
-		for t in run_clone.findall(".//w:t", namespaces=run_clone.nsmap):
-			t.tag = qn("w:delText")
-		del_element.append(run_clone)
+    # Clone each run and replace <w:t> with <w:delText>
+    for run in runs:
+        run_clone = copy.deepcopy(run._element)
+        for t in run_clone.findall(".//w:t", namespaces=run_clone.nsmap):
+            t.tag = qn("w:delText")
+        del_element.append(run_clone)
 
-	# Remove the original runs
-	for run in runs:
-		paragraph.remove(run._element)
+    # Remove the original runs
+    for run in runs:
+        paragraph.remove(run._element)
 
-	# Insert the deletion at the original position
-	paragraph.insert(insertion_point, del_element)
+    # Insert the deletion at the original position
+    paragraph.insert(insertion_point, del_element)
 
-	return del_element
+    return del_element
 
 def create_tracked_deletion(prev_element, runs, author, change_id):
     change_date = current_document_datetime()

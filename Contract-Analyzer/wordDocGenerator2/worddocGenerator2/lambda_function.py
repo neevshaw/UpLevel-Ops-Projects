@@ -10,7 +10,6 @@ import os
 from docx import Document
 from docx.text.run import Run
 
-# Import helper functions from word_doc.py
 from word_doc import (
     json_data_from_doc,
     split_run,
@@ -81,55 +80,30 @@ form * {
 SPACE_RE = re.compile(r' {2,}')  # two or more spaces
 
 def normalize_runs_in_paragraph(p):
-    """
-    Collapse multiple spaces to one within each run,
-    and ensure only a single space across run boundaries
-    (without touching paragraph breaks or run styling).
-    """
+    """Collapse repeated spaces within and across runs without touching run styling."""
     prev_ended_with_space = False
 
     for run in p.runs:
         t = run.text
 
-        # 1) collapse internal multiples within the run
         t = SPACE_RE.sub(' ', t)
 
-        # 2) if previous run ended with a space and this run starts with spaces,
-        # squeeze to exactly one leading space on this run
-        if prev_ended_with_space:
-            # if there is any leading whitespace, reduce to exactly one regular space
-            if t.startswith(' '):
-                t = t.lstrip()
-                t = ' ' + t
-            # if it doesn't start with a space, we leave it as-is (no gap intended)
+        if prev_ended_with_space and t.startswith(' '):
+            t = ' ' + t.lstrip()
 
         run.text = t
 
-        # 3) update boundary flag for next run
         prev_ended_with_space = run.text.endswith(' ')
 
 def normalize_document_spaces(doc):
-    # Paragraphs
     for p in doc.paragraphs:
         normalize_runs_in_paragraph(p)
 
-    # Tables (iterate cells -> paragraphs)
     for tbl in doc.tables:
         for row in tbl.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
                     normalize_runs_in_paragraph(p)
-
-    # (Optional) headers/footers, if you want them too:
-    """for section in doc.sections:
-        for header in (section.header, section.first_page_header, section.even_page_header):
-            if header is not None:
-                for p in header.paragraphs:
-                    normalize_runs_in_paragraph(p)
-        for footer in (section.footer, section.first_page_footer, section.even_page_footer):
-            if footer is not None:
-                for p in footer.paragraphs:
-                    normalize_runs_in_paragraph(p)"""
 
 
 def lambda_handler(event, context):
@@ -247,18 +221,16 @@ def handle_file_upload_page(event):
 def handle_file_upload(event):
     print("Handling file upload...")
 
-    # Safely extract query params and upload_id
     query_params = event.get('queryStringParameters') or {}
     upload_id = query_params.get('upload_id')
 
     if not upload_id:
-        print("❌ Missing upload_id in query params")
+        print("Missing upload_id in query params")
         return {
             "statusCode": 400,
             "body": "Missing upload_id query parameter"
         }
 
-    # Decode body
     body = event.get("body")
     if body is None:
         return {
@@ -275,14 +247,12 @@ def handle_file_upload(event):
     elif isinstance(body, str):
         body = body.encode("iso-8859-1")
 
-    # Normalize header keys
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
     content_type = headers.get("content-type")
 
     if not content_type:
         return {"statusCode": 400, "body": "Missing Content-Type header"}
 
-    # Parse the multipart form data
     try:
         fs = cgi.FieldStorage(
             fp=io.BytesIO(body),
@@ -294,7 +264,7 @@ def handle_file_upload(event):
         return {"statusCode": 400, "body": f"Error parsing form data: {str(e)}"}
 
     if "file" not in fs:
-        print("❌ No file found in upload")
+        print("No file found in upload")
         return {"statusCode": 400, "body": "No file uploaded"}
 
     uploaded_file = fs["file"]
@@ -314,7 +284,9 @@ def handle_file_upload(event):
         output_stream = io.BytesIO()
         doc.save(output_stream)
         output_stream.seek(0)
-    # Upload to S3
+    else:
+        return {"statusCode": 400, "body": "Unsupported file type. Please upload a .docx or .pdf file."}
+
     s3 = boto3.client("s3")
     s3_key = upload_id
     s3.put_object(
@@ -324,9 +296,8 @@ def handle_file_upload(event):
         ContentType=CONTENT_TYPE,
     )
 
-    print(f"✅ Uploaded file to S3 with key: {s3_key}")
+    print(f"Uploaded file to S3 with key: {s3_key}")
 
-    # Return confirmation page
     return {
         "statusCode": 200,
         "headers": {
@@ -364,14 +335,11 @@ def handle_file_upload_data(event):
 
     doc = Document(file_stream)
 
-    # Call helper function from word_doc.py
     result = json_data_from_doc(doc, cursor, size)
 
-    # Transform to expected API format
     paragraphs = result['doc_data']['paragraphs']
     next_cursor = result['next-cursor']
 
-    # Flatten paragraphs into chunks
     chunks = []
     for idx, para in enumerate(paragraphs):
         chunks.append({
@@ -470,7 +438,6 @@ def handle_edit_file(event):
                     })
                 }
 
-            # Apply the edit now that the indices have been found
             chars_so_far = 0
             found_start = False
             edit_runs = []
@@ -593,7 +560,7 @@ def handle_edit_file(event):
             insert_pos = edit['insert_pos']
             insert_runs = edit['insert']
             is_list_item = edit.get('is_list_item', False)
-            list_level = edit.get('list_level', 0)  # NEW: support sub-bullets
+            list_level = edit.get('list_level', 0)
 
             # Store ordered map of paragraphs and corresponding text
             paragraph_texts = []  # Item format: (paragraph, text)
@@ -632,13 +599,12 @@ def handle_edit_file(event):
                         'adjacent_text': adjacent_text,
                         'insert_pos': insert_pos,
                         'consequence': 'No edits were applied.',
-                        'tip': 'Make sure that you are'
+                        'tip': 'Make sure that adjacent_text matches the start or end of a paragraph exactly.'
                     })
                 }
 
             new_paragraph = doc.paragraphs[insert_ind].insert_paragraph_before()
 
-            # ---------- NEW LIST HANDLING ----------
             if is_list_item:
                 from copy import deepcopy
                 from lxml import etree
@@ -671,7 +637,6 @@ def handle_edit_file(event):
                     new_paragraph._element.pPr.append(numPr)
 
                 apply_list_formatting(new_paragraph, list_level)
-            # ---------- END LIST HANDLING ----------
 
             dummy_run = new_paragraph.add_run()  # Reference point for tracked insertion
             ins_elem = create_tracked_insertion(dummy_run._element, insert_runs, author, change_id_counter)

@@ -9,8 +9,8 @@ import fitz  # PyMuPDF
 import os
 import requests
 from pptx import Presentation
-from docx import Document  # Add this import at the top
-# --- helpers ---
+from docx import Document
+
 def _approx_tokens(s) -> int:
     return max(1, len(s) // 4)  # rough heuristic
 
@@ -31,7 +31,6 @@ def _split_into_chunks(text: str, max_chars: int = 1500) -> List[str]:
         out.append(buf)
     return out
 
-# --- per-type parsers ---
 def _parse_pdf(path, name) -> List[Dict]:
     doc = fitz.open(path)
     chunks = []
@@ -52,12 +51,10 @@ def _parse_pdf(path, name) -> List[Dict]:
 def _parse_docx(filepath, name) -> List[Dict]:
     """filepath: string path to DOCX file"""
     doc = Document(filepath)
-    
-    # Extract all text from paragraphs
+
     paragraphs = [para.text for para in doc.paragraphs if para.text.strip()]
     text = "\n\n".join(paragraphs)
-    
-    # Also extract text from tables if any
+
     for table in doc.tables:
         for row in table.rows:
             row_text = " | ".join(cell.text.strip() for cell in row.cells)
@@ -129,31 +126,23 @@ PARSERS = {
     ".txt": _parse_txt,
 }
 
-# In parsing.py - ingest_files function
-def ingest_files(filenames: List[Dict]) -> bytes:
+def ingest_files(filenames: List[Dict]) -> List[Dict]:
     all_chunks: List[Dict] = []
     
     for file_info in filenames:
         filename = file_info['filename']
         filepath = file_info['path']
         ext = "." + filename.split(".")[-1].lower()
-        
-        # DEBUG: Only check DOCX files
-        
-        # Read from local file
+
+        # Sanity-check that the DOCX downloaded completely before parsing
         if ext == ".docx":
             import time, zipfile
 
-            time.sleep(0.05)  # small wait to avoid race (Lambda-specific quirk)
-            print("try zip")
+            time.sleep(0.05)
             with open(filepath, "rb") as f:
-                # double-check ZIP validity by actually opening it as zip
                 z = zipfile.ZipFile(f)
-                z.testzip()  # will raise BadZipFile if something is wrong
-            print("try docx")
-            # Now open with python-docx
-            doc = Document(filepath)
-            print("success?")
+                z.testzip()
+            Document(filepath)
         parser = PARSERS.get(ext)
         if parser:
             all_chunks.extend(parser(filepath, filename))

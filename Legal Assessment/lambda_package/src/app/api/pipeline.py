@@ -1,27 +1,5 @@
-"""FastAPI router for the end‑to‑end pipeline.
-
-This module exposes a set of endpoints to:
-
-- Upload raw files for a given job (``/upload``)
-- Ingest uploaded files into a chunked intermediate representation (``/ingest``)
-- Run LLM-based extraction over the chunks (``/extract``)
-- Synthesize/prioritize findings (``/synthesize``)
-- Render a presentation deck (``/render``)
-- Score a current-state baseline (``/current_state/baseline``)
-- Render and view an HTML dashboard (``/dashboard`` and ``/dashboard/view/{job_id}``)
-- Build a policy index over policy documents (``/policy/index``)
-- Apply policy adjudication to the current state (``/current_state/policy``)
-- Generate prioritized recommendations (``/recommendations``)
-
-Notes
------
-- The concrete heavy lifting lives in ``app.services.*``. This router focuses on
-  HTTP contracts, light validation, and predictable logging.
-- JSON files read from disk are opened using UTF‑8 explicitly to avoid platform
-  encoding surprises (e.g., Windows cp1252 defaults).
-- Where appropriate, we surface short "preview" payloads so the client can
-  render summaries without downloading whole artifacts.
-"""
+"""Pipeline blueprint: admin upload endpoint that stores client documents in S3
+and kicks off the async processing worker."""
 
 from __future__ import annotations
 
@@ -39,22 +17,11 @@ import boto3
 import botocore
 from pydantic import BaseModel
 
-# Local service layer imports
 from ..models.user import User, db
 
-# -----------------------------------------------------------------------------
-# Logging
-# -----------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
-# -----------------------------------------------------------------------------
-# Router
-# -----------------------------------------------------------------------------
 router = Blueprint('pipeline', __name__)
 
-
-# =============================================================================
-# Upload
-# =============================================================================
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 s3 = boto3.client('s3', config=botocore.config.Config(s3={'addressing_style':'path'}))
 lambda_client = boto3.client(
@@ -72,29 +39,18 @@ def upload():
             db.session.add(user)
         user.set_password(request.form.get("password"))
         db.session.commit()
-        print("0")
         files = request.files.getlist('files')
         saved_files = []
-        i=1
         for f in files:
-            print(i)
-            # Determine a safe destination path under your inputs root.
             filename = secure_filename(f.filename)
-            temp_path = os.path.join("/tmp", filename)   # Lambda's temp folder
-            # Check incoming file size from Flask
-            
-            # Save file
+            temp_path = os.path.join("/tmp", filename)
             f.stream.seek(0)
             with open(temp_path, "wb") as tmp:
                 tmp.write(f.read())
-            
-            # Check saved file size
-            
+
             s3.upload_file(temp_path, BUCKET_NAME, request.form.get("company") + "/" + filename)
-            print("S3")
 
             saved_files.append({"filename": filename, "key": request.form.get("company") + "/" + filename})
-        print(os.environ.get('AWS_LAMBDA_FUNCTION_NAME'))
         # Invoke this same Lambda function asynchronously as a worker
         lambda_client.invoke(
             FunctionName=os.getenv('AWS_LAMBDA_FUNCTION_NAME'),
@@ -108,9 +64,7 @@ def upload():
                 }
             })
         )
-        print("-2")
-        
-        return {"message": "proccssing"}, 202
+        return {"message": "processing"}, 202
     return {"message": "Forbidden"}, 403
 
 

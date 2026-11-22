@@ -11,22 +11,16 @@ def _read_json(p: Path) -> Dict[str, Any]:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-def render_dashboard(cs, pol, rec_data, syn, title: Optional[str] = None) -> Path:
-    """
-    Reads working/{job_id}/current_state.json (+ synthesis.json if present)
-    and writes outputs/{job_id}/dashboard.html.
-    """
+def render_dashboard(cs, pol, rec_data, syn, title: Optional[str] = None) -> str:
+    """Render the client-facing maturity dashboard as a standalone HTML string."""
 
-    # Try to read policy-adjusted levels
     policy_by_id = {}
     policy_applied_count = 0
     if pol != None:
       for c in pol.get("categories", []):
-          # Map by stable id; fall back to name if needed
           key = c.get("id") or c.get("name")
           policy_by_id[key] = c
 
-    # Try to read recommendations
     recommendations = []
     if rec_data != None:
         recommendations = rec_data.get("recommendations", [])

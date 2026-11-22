@@ -13,8 +13,6 @@ from openai import OpenAI
 import fitz  # PyMuPDF
 
 from rapidfuzz import fuzz
-import re
-import unicodedata
 
 SMART_MAP = str.maketrans({
     "\u2018": "'", "\u2019": "'", "\u201B": "'", "\u2032": "'",
@@ -27,11 +25,10 @@ def strip_leading_chars(text_string):
     return text_string.lstrip(chars_to_strip)
 
 def _normalize(s: str) -> str:
-    # Normalize for fuzzy *comparison only* (not for output)
+    # Used only for fuzzy comparison, never for output
     s = unicodedata.normalize("NFC", s)
     s = s.translate(SMART_MAP)
     s = s.casefold()
-    # collapse whitespace
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -43,10 +40,7 @@ def _extract_text(doc) -> str:
     return "\n".join(parts)
 
 def _tokenize_with_spans(s: str):
-    """
-    Split into tokens (words and punctuation) and keep (start, end) spans in the raw string.
-    """
-    # Tokens include words and punctuation so length alignment is better than words-only
+    """Split into word/punctuation tokens, keeping (start, end) spans in the raw string."""
     tokens = []
     for m in re.finditer(r"\w+|[^\w\s]", s, flags=re.UNICODE):
         tokens.append((m.group(0), m.start(), m.end()))
@@ -54,45 +48,39 @@ def _tokenize_with_spans(s: str):
 
 def find_best_phrase(doc, phrase, token_slack = 3):
     """
-    Prints and returns the best-matching *original* substring from the document,
-    with length constrained to be close to the phrase (± token_slack tokens).
+    Return the substring of the document that best fuzzy-matches `phrase`,
+    with length within ± token_slack tokens of the phrase.
     """
     raw_text = _extract_text(doc)
     if not raw_text.strip():
         print("Document appears to be empty.")
         return ""
 
-    # Tokenize doc and build a parallel normalized token string for scoring
     tokens = _tokenize_with_spans(raw_text)
     if not tokens:
         print("No text tokens found in the document.")
         return ""
 
-    # Build normalized phrase
     norm_phrase = _normalize(phrase)
     if not norm_phrase:
         print("Phrase is empty after normalization.")
         return ""
 
-    # Build normalized tokens list (join later for window strings)
     norm_tokens = []
     for tok, _, _ in tokens:
         norm_tokens.append(_normalize(tok))
 
-    # Estimate target token length by tokenizing the phrase similarly
     phrase_tokens = [t for t in re.findall(r"\w+|[^\w\s]", phrase)]
     n = max(1, len(phrase_tokens))
 
-    # Window search: windows of length [n - token_slack, n + token_slack]
     min_w = max(1, n - token_slack)
     max_w = max(min_w, n + token_slack)
 
     best = (0.0, 0, 0)  # (score, start_index, window_len)
 
-    # Step size: advance by a couple tokens for speed; adjust for thoroughness if needed
+    # Step by 2 tokens for speed
     for win_len in range(min_w, max_w + 1):
         for i in range(0, max(0, len(tokens) - win_len + 1), 2):
-            # Normalized window string for scoring
             norm_window = " ".join(norm_tokens[i:i+win_len])
             # Use ratio (not partial_ratio) to avoid selecting partial subphrases
             score = fuzz.ratio(norm_phrase, norm_window)
@@ -104,7 +92,6 @@ def find_best_phrase(doc, phrase, token_slack = 3):
     end_raw = tokens[start_i + win_len - 1][2]
     best_raw_substring = raw_text[start_raw:end_raw]
 
-    # Print exactly what the user asked for
     print(best_raw_substring)
     return best_raw_substring
 
@@ -163,7 +150,7 @@ STEP 3: REDLINE_PLAN
 
 Input: {upload_id, company, contract_type, data:{document_text}}
 
-In this step you are generating redlines of the given document accoridng to the following guidlines (mainly BLVD_MSA_REDLINE_RULES, because GUIDE TO EFFECTIVE CONTRACT REDLINE COMMENTS is just for good practices).
+In this step you are generating redlines of the given document according to the following guidelines (mainly BLVD_MSA_REDLINE_RULES, because GUIDE TO EFFECTIVE CONTRACT REDLINE COMMENTS is just for good practices).
 EXPECTED MINIMUM AMOUNT OF REDLINES (DEPENDING ON CONTRACT_TYPE):
 - NDA contracts: 5-10 redlines typical
 - MSA contracts: 10-15 redlines typical
@@ -288,7 +275,7 @@ Each of these examples demonstrates a few key qualities of good contract comment
 5.	Termination with Cause
     ●	Rule (IF/THEN):
         ○	IF a party materially breaches, THEN the non-breaching party may terminate for cause if breach is uncured within 30 days after detailed written notice.
-        ○	IF the breach is incurable, tHEN no cure period applies and termination may be immediate.
+        ○	IF the breach is incurable, THEN no cure period applies and termination may be immediate.
     ●	Allowed:
         ○	30-day cure for curable material breaches; immediate termination for incurable events.
     ●	Not Allowed:
@@ -481,7 +468,7 @@ Each of these examples demonstrates a few key qualities of good contract comment
 19.	Non-Solicitation
     ●	AI Action Rule:
         ○	If a non-solicitation provision is present, please do the following:
-            ■	(A) limit it to (1) year post-terimation of employees that were introduced to Boulevard as part of the contracted services, and
+            ■	(A) limit it to (1) year post-termination of employees that were introduced to Boulevard as part of the contracted services, and
             ■	(B) limit it to a prohibition against directly soliciting that individual (but allow for that individual to respond to a general Boulevard open position notice)
     ●	Allowed:
         ○	Non-solicitation with a one-year duration of relevant individuals regarding direct solicitation..
@@ -662,37 +649,34 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 HELPER_MODEL = os.environ.get("HELPER_MODEL", "gpt-4o-mini")
 WORKFLOW_VERSION = "1.1"
 HELPER_VERSION = "3.1"
-WORD_DOC_GENERATOR_URL = os.environ.get(
-    "WORD_DOC_GENERATOR_URL",
-    "https://cugpx3dhg7.execute-api.us-west-2.amazonaws.com/default/wordDocGenerator/editFileUpload"
-)
+# Base URL of the wordDocGenerator API, e.g. https://<api-id>.execute-api.<region>.amazonaws.com/default/wordDocGenerator
+WORD_DOC_GENERATOR_BASE_URL = os.environ.get("WORD_DOC_GENERATOR_BASE_URL", "").rstrip("/")
+WORD_DOC_GENERATOR_URL = os.environ.get("WORD_DOC_GENERATOR_URL", f"{WORD_DOC_GENERATOR_BASE_URL}/editFileUpload")
 
 # -----------------------------
 # Document Retrieval
 # -----------------------------
-def get_document_text(upload_id: str) -> str:
+def get_document_text(upload_id: str) -> tuple:
     bucket = os.getenv("TMP_DOC_UPLOAD_BUCKET_NAME", "tmp-word-doc-upload")
     key = upload_id
     obj = s3.get_object(Bucket=bucket, Key=key)
     body_bytes = obj["Body"].read()
     content_type = str(obj.get("ContentType", "").lower())
-    
-    # Detect if PDF
+
     if "pdf" in content_type:
-        # Wrap bytes in BytesIO
         doc = fitz.open(stream=io.BytesIO(body_bytes), filetype="pdf")
         
         text_chunks = []
         for page_num, page in enumerate(doc):
-            text = page.get_text()  # Try without "text" parameter first
-            if text and text.strip():  # Check if text is not just whitespace
+            text = page.get_text()
+            if text and text.strip():
                 text_chunks.append(text)
         
         doc.close()
         
         if not text_chunks:
-            print("⚠️ No text extracted from PDF - might be image-based or encrypted")
-            return ""
+            print("No text extracted from PDF - might be image-based or encrypted")
+            return "", None
         
         text = "\n".join(text_chunks)
         return text, doc
@@ -754,11 +738,11 @@ def _success_envelope(step: str, next_step, summary: Dict[str, Any]) -> Dict[str
     }
 
 
-def split_text_into_chunks(text: str, j: int, max_words: int = 1000) -> list[str]:
-    """Split text into chunks by word count"""
+def split_text_into_chunks(text: str, j: int, max_words: int = 1000) -> tuple[str, int]:
+    """Return the j-th chunk of `max_words` words and the index of the last chunk."""
     words = text.split()
     chunk = ' '.join(words[max_words*j:max_words*j + max_words])
-    return chunk, len(words)//1000
+    return chunk, len(words)//max_words
 
 # -----------------------------
 # Main Lambda Entry Point
@@ -783,8 +767,6 @@ def lambda_handler(event, context):
             upload_id = payload.get("upload_id")
             document_text, _ = get_document_text(upload_id)
             payload.setdefault("data", {})["document_text"] = document_text
-
-            # Call model for summary
             return call_model(step, payload)
 
         elif step == "redline_plan":
@@ -812,7 +794,7 @@ def lambda_handler(event, context):
         elif step == "deliver":
             upload_id = payload.get("upload_id")
             filename = payload.get("filename")
-            return _resp(200, _success_envelope(step, "STOP", {"download_url": f"https://cugpx3dhg7.execute-api.us-west-2.amazonaws.com/default/wordDocGenerator/document?upload_id={upload_id}&source=uploaded&filename={filename}"})) 
+            return _resp(200, _success_envelope(step, "STOP", {"download_url": f"{WORD_DOC_GENERATOR_BASE_URL}/document?upload_id={upload_id}&source=uploaded&filename={filename}"})) 
 
         else:
             return _resp(400, _error_envelope(step, "unknown_step", f"Unrecognized step: {step}"))
@@ -823,7 +805,7 @@ def lambda_handler(event, context):
 
 
 def call_model(step, payload):
-    """Call the helper model, then validate/normalize the envelope before returning."""
+    """Call the helper model with the system prompt for this step."""
     user_msg = json.dumps(payload, ensure_ascii=False)
     print("Start")
     chat = client.chat.completions.create(
